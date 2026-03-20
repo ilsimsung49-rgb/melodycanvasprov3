@@ -1,264 +1,229 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8">
-  <title>MelodyCanvas Pro v3 - Lead Sheet Master</title>
-  <script src="https://cdn.jsdelivr.net/npm/abcjs@6.2.2/dist/abcjs-basic-min.js"></script>
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Outfit:wght@300;600&display=swap');
-    :root {
-      --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
-      --accent: #58a6ff; --success: #238636; --danger: #f85149;
-    }
-    body {
-      margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text);
-      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-    }
-    header {
-      padding: 1.5rem 2rem; background: var(--panel); border-bottom: 2px solid var(--accent);
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .main-container { display: flex; flex: 1; overflow: hidden; }
-    .sidebar {
-      width: 400px; background: var(--panel); border-right: 1px solid var(--border);
-      padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.5rem;
-    }
-    .content { flex: 1; padding: 2rem; overflow-y: auto; background: #ffffff; color: #000; }
-    .panel { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 1rem; border-color: var(--border); background: var(--panel); color: var(--text); }
-    .btn {
-      padding: 0.8rem 1.2rem; border-radius: 6px; border: none; font-weight: 600; cursor: pointer;
-      transition: all 0.2s; background: var(--accent); color: white;
-    }
-    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
-    .btn-secondary { background: #30363d; border: 1px solid var(--border); }
-    .score-wrap { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); min-height: 800px; color: #000; }
-    textarea { width: 100%; height: 200px; background: #010409; color: #58a6ff; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-family: monospace; resize: none; overflow-y: auto; }
-    .section-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: #010409; border-radius: 4px; margin-bottom: 0.5rem; }
-    .score-meta { text-align: center; margin-bottom: 2rem; color: #000; }
-    .score-meta h1 { margin: 0; font-family: 'Outfit', sans-serif; font-size: 2.5rem; }
-    .score-meta .sub { font-size: 1.2rem; color: #484f58; }
-    #score-target svg { width: 100% !important; height: auto !important; }
-  </style>
-</head>
-<body>
+import os
+import uuid
+import threading
+import numpy as np
+import librosa
+import gc
+import traceback
+import tempfile
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 
-<header>
-  <div style="display:flex; align-items:center; gap:1rem">
-    <div style="font-size:1.8rem">🎹</div>
-    <div>
-      <h2 style="margin:0; font-family:'Outfit'">MelodyCanvas Pro v3</h2>
-      <small style="color:var(--accent)">Lead Sheet Master Edition</small>
-    </div>
-  </div>
-  <audio id="audio-player" controls style="height:36px; border-radius:18px"></audio>
-</header>
+# Absolute Pathing
+root_dir = os.path.dirname(os.path.abspath(__file__))
+frontend_dir = os.path.join(root_dir, 'frontend')
+UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), 'melody_uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-<div class="main-container">
-  <div class="sidebar">
-    <div class="panel">
-      <h3>1단계: 파일 업로드</h3>
-      <input type="file" id="audio-file" accept="audio/*" style="width:100%">
-      <div id="status-1" style="margin-top:0.5rem; font-size:0.85rem"></div>
-    </div>
+app = Flask(__name__, static_folder=frontend_dir)
+CORS(app)
 
-    <div class="panel">
-      <h3>2단계: 곡 설정 (Lead Sheet)</h3>
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem">
-        <input type="text" id="score-title" placeholder="곡 제목" style="padding:0.5rem">
-        <input type="text" id="score-key" placeholder="Key (예: A Major)" style="padding:0.5rem">
-        <input type="text" id="score-tempo" placeholder="Tempo (BPM)" style="padding:0.5rem">
-        <input type="text" id="score-style" placeholder="Style (Swing, Ballad)" style="padding:0.5rem">
-      </div>
-    </div>
+# Session Data: status = 'pending' | 'done' | 'error'
+data_store = {}
 
-    <div class="panel">
-      <h3>3단계: 섹션 구성</h3>
-      <div id="section-list"></div>
-      <button class="btn btn-secondary" onclick="addSection()" style="width:100%; margin-top:0.5rem">+ 섹션 추가</button>
-      <button id="btn-extract" class="btn" style="width:100%; margin-top:1rem" onclick="runAnalysis()">🧬 전구간 정밀 분석 시작</button>
-    </div>
+def _run_analysis(file_id, filepath):
+    try:
+        print(f"[BG] Start analysis: {filepath}")
+        y, sr = librosa.load(filepath, sr=4000, duration=5.0, mono=True)
+        gc.collect()
 
-    <div class="panel">
-      <h3>4단계: 가사 입력</h3>
-      <p style="font-size:0.8rem; opacity:0.7">단락(엔터 2번)으로 나누면 자동으로 섹션에 배분됩니다.</p>
-      <textarea id="full-lyrics" placeholder="[Verse 1]&#10;흐르는 세월속에..."></textarea>
-      <button class="btn" style="width:100%; margin-top:1rem; font-size:1.1rem" onclick="generateFinalScore()">🎬 최종 악보 생성</button>
-    </div>
-  </div>
+        tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
+        tempo = float(np.mean(tempo_raw)) if isinstance(tempo_raw, np.ndarray) else float(tempo_raw)
 
-  <div class="content">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; color:#000">
-      <h2 style="margin:0">악보 미리보기</h2>
-      <div style="display:flex; gap:0.5rem">
-        <button class="btn" onclick="exportImage()" style="background:var(--success)">🖼️ 악보 사진(PNG)으로 저장</button>
-        <button class="btn btn-secondary" onclick="exportXML()">📄 데이터 파일 저장</button>
-        <button class="btn btn-secondary" onclick="abcView()">📄 ABC 코드</button>
-      </div>
-    </div>
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=1024, hop_length=1024)
+        mean_chroma = np.mean(chroma, axis=1)
+        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+        corrs = [np.corrcoef(mean_chroma, np.roll(major_profile, i))[0, 1] for i in range(12)]
+        best_k = keys[np.argmax(corrs)]
 
-    <div class="score-wrap">
-      <div id="score-target"></div>
-    </div>
-    
-    <div id="abc-view" style="display:none; margin-top:1rem; background:#010409; color:#58a6ff; padding:1rem; border-radius:8px; font-family:monospace; white-space:pre"></div>
-  </div>
-</div>
+        del y, chroma
+        gc.collect()
 
-<script>
-  let state = {
-    file_id: '',
-    beat: null, key: null, chords: [], melody: [],
-    sections: [
-      {name:'Intro', bars:4, type:'inst'},
-      {name:'Verse 1', bars:8, type:'vocal'},
-      {name:'Chorus', bars:8, type:'vocal'}
-    ],
-    lastXML: ''
-  };
+        data_store[file_id].update({
+            "status": "done",
+            "beat": {"bpm": round(tempo)},
+            "key": {"key": best_k, "scale": "major", "key_str": f"{best_k} Major"},
+            "chords": []
+        })
+        print(f"[BG] Done: {file_id} | BPM={round(tempo)} Key={best_k}")
 
-  function addSection() {
-    state.sections.push({name:'New Section', bars:8, type:'vocal'});
-    renderSections();
-  }
+    except Exception as e:
+        traceback.print_exc()
+        data_store[file_id].update({"status": "error", "error": str(e)})
 
-  function renderSections() {
-    const container = document.getElementById('section-list');
-    container.innerHTML = state.sections.map((s, i) => `
-      <div class="section-item">
-        <input type="text" value="${s.name}" onchange="state.sections[${i}].name=this.value" style="width:100px; background:none; border:none; color:white">
-        <input type="number" value="${s.bars}" onchange="state.sections[${i}].bars=parseInt(this.value)" style="width:40px; background:none; border:none; color:white">
-        <select onchange="state.sections[${i}].type=this.value" style="background:none; border:none; color:#58a6ff">
-          <option value="vocal" ${s.type==='vocal'?'selected':''}>Vocal</option>
-          <option value="inst" ${s.type==='inst'?'selected':''}>Inst</option>
-        </select>
-      </div>
-    `).join('');
-  }
-  renderSections();
 
-  document.getElementById('audio-file').onchange = async (e) => {
-    const file = e.target.files[0];
-    if(!file) return;
-    document.getElementById('audio-player').src = URL.createObjectURL(file);
-    const formData = new FormData(); formData.append('file', file);
-    document.getElementById('status-1').innerText = '분석중...';
-    try {
-      const resp = await fetch('/api/analyze', {method:'POST', body:formData});
-      const data = await resp.json();
-      state.file_id = data.file_id;
-      state.beat = data.beat;
-      state.key = data.key;
-      state.chords = data.chords;
-      document.getElementById('score-title').value = data.filename.split('.')[0];
-      document.getElementById('score-key').value = data.key.key_str;
-      document.getElementById('score-tempo').value = data.beat.bpm;
-      document.getElementById('status-1').innerText = '분석 완료! (BPM: ' + data.beat.bpm + ')';
-    } catch(err) { alert('분석 실패: ' + err); }
-  };
+@app.route('/')
+def index():
+    return send_from_directory(frontend_dir, 'index.html')
 
-  async function runAnalysis() {
-    if(!state.file_id) return alert('파일을 먼저 업로드하세요');
-    document.getElementById('btn-extract').innerText = '🧬 정밀 멜로디 추출중... (5분 소요)';
-    const resp = await fetch('/api/extract_melody', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({file_id: state.file_id, t_start:0, t_end: 600})
-    });
-    const data = await resp.json();
-    state.melody = data.melody;
-    document.getElementById('btn-extract').innerText = '✅ 추출 완료';
-  }
+@app.route('/<path:path>')
+def serve_static(path):
+    full_path = os.path.join(frontend_dir, path)
+    if os.path.exists(full_path):
+        return send_from_directory(frontend_dir, path)
+    return send_from_directory(frontend_dir, 'index.html')
 
-  async function generateFinalScore() {
-    const rawLyrics = document.getElementById('full-lyrics').value;
-    const parts = rawLyrics.split(/\n\n+/).filter(p => p.trim());
-    
-    state.sections = [];
-    for(let i=0; i<parts.length; i++) {
-        const name = parts[i].match(/^\[(.*?)\]/);
-        const sectionName = name ? name[1] : 'Verse ' + (i+1);
-        state.sections.push({name: sectionName, bars: 8, type: 'vocal', lyrics: parts[i]});
-    }
-    renderSections();
 
-    const manualBpm = parseInt(document.getElementById('score-tempo').value) || 120;
-    const manualKey = document.getElementById('score-key').value || 'C';
+@app.route('/api/analyze', methods=['POST'])
+def analyze():
+    try:
+        if 'file' not in request.files:
+            return jsonify({"error": "No file uploaded"}), 400
 
-    const payload = {
-      title: document.getElementById('score-title').value || 'Lead Sheet',
-      style: document.getElementById('score-style').value || 'Medium Swing',
-      beat: { bpm: manualBpm }, 
-      key: { key_str: manualKey },
-      chords: state.chords,
-      melody: state.melody, 
-      sections: state.sections
-    };
-    
-    document.getElementById('status-1').innerText = '최종 악보 생성 중...';
-    try {
-      const resp = await fetch('/api/build_score', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
-      const result = await resp.json();
-      state.abc = result.abc;
-      state.lastXML = result.xml || ""; 
-      
-      ABCJS.renderAbc("score-target", result.abc, {responsive:'resize', foregroundColor:'#000'});
-      document.getElementById('abc-view').innerText = result.abc;
-      document.getElementById('status-1').innerText = '생성 완료! 악보를 이미지로 받으세요.';
-    } catch(err) {
-      alert('생성 실패: ' + err);
-    }
-  }
+        file = request.files['file']
+        file_id = str(uuid.uuid4())[:8]
+        safe_filename = "".join([c for c in file.filename if c.isalnum() or c in "._-"])
+        filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{safe_filename}")
+        file.save(filepath)
 
-  async function exportImage() {
-    if(!state.abc) return alert('먼저 악보를 생성해 주세요.');
-    const svg = document.querySelector("#score-target svg");
-    if(!svg) return alert('악보 이미지를 찾을 수 없습니다.');
-    
-    document.getElementById('status-1').innerText = '🖼️ 사진 파일(PNG) 생성 중...';
-    
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const svgRect = svg.getBoundingClientRect();
-    const width = svgRect.width * 2;
-    const height = svgRect.height * 2;
-    
-    const img = new Image();
-    const svgBlob = new Blob([svgData], {type: "image/svg+xml;charset=utf-8"});
-    const url = URL.createObjectURL(svgBlob);
-    
-    img.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, width, height);
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      const pngUrl = canvas.toDataURL("image/png");
-      const a = document.createElement("a");
-      a.href = pngUrl;
-      a.download = `melody_score.png`;
-      a.click();
-      
-      URL.revokeObjectURL(url);
-      document.getElementById('status-1').innerText = '✅ PNG 저장 완료!';
-    };
-    img.src = url;
-  }
+        data_store[file_id] = {
+            "status": "pending",
+            "path": filepath,
+            "filename": file.filename
+        }
 
-  function exportXML() {
-    if(!state.abc) return alert('먼저 악보를 생성해 주세요.');
-    const content = state.lastXML || state.abc;
-    const extension = state.lastXML ? 'musicxml' : 'abc';
-    const blob = new Blob([content], {type: 'text/plain'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = `score.${extension}`; a.click();
-  }
+        t = threading.Thread(target=_run_analysis, args=(file_id, filepath), daemon=True)
+        t.start()
 
-  function abcView() { 
-    if(!state.abc) return alert('악보를 먼저 생성해 주세요.');
-    const v = document.getElementById('abc-view'); 
-    v.style.display = v.style.display==='none'?'block':'none'; 
-  }
-</script>
-</body>
-</html>
+        return jsonify({"file_id": file_id, "status": "pending"})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/status/<file_id>', methods=['GET'])
+def get_status(file_id):
+    if file_id not in data_store:
+        return jsonify({"status": "error", "error": "Not found"}), 404
+
+    entry = data_store[file_id]
+    status = entry.get("status", "pending")
+
+    if status == "done":
+        return jsonify({
+            "status": "done",
+            "file_id": file_id,
+            "filename": entry.get("filename", ""),
+            "beat": entry.get("beat", {}),
+            "key": entry.get("key", {}),
+            "chords": entry.get("chords", [])
+        })
+    elif status == "error":
+        return jsonify({"status": "error", "error": entry.get("error", "Unknown error")}), 500
+    else:
+        return jsonify({"status": "pending"})
+
+
+@app.route('/api/extract_melody', methods=['POST'])
+def extract_melody():
+    try:
+        data = request.json
+        fid = data.get('file_id')
+        if not fid or fid not in data_store:
+            return jsonify({"error": "Expired."}), 404
+
+        entry = data_store[fid]
+        if entry.get("status") != "done":
+            return jsonify({"error": "Analysis not complete yet."}), 400
+
+        audio_path = entry["path"]
+        y, sr = librosa.load(audio_path, sr=8000, duration=60.0)
+        gc.collect()
+
+        hop = 1024
+        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, fmin=75, fmax=800)
+        gc.collect()
+
+        onsets = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop)
+        onset_times = librosa.frames_to_time(onsets, sr=sr, hop_length=hop)
+        gc.collect()
+
+        melody = []
+        max_mag = np.max(magnitudes) if magnitudes.size > 0 else 1.0
+        threshold = max_mag * 0.1
+
+        for i in range(len(onset_times)):
+            t_start = onset_times[i]
+            t_end = onset_times[i + 1] if i + 1 < len(onset_times) else t_start + 0.5
+            center_frame = librosa.time_to_frames((t_start + t_end) / 2, sr=sr, hop_length=hop)
+            if center_frame < pitches.shape[1]:
+                idx = magnitudes[:, center_frame].argmax()
+                if magnitudes[idx, center_frame] > threshold:
+                    pitch = pitches[idx, center_frame]
+                    if pitch > 50:
+                        melody.append({'t': float(t_start), 'dur': float(t_end - t_start), 'pitch': float(pitch)})
+
+        del y, pitches, magnitudes
+        gc.collect()
+        return jsonify({"melody": melody})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+def pitch_to_abc(pitch):
+    if pitch <= 0: return ""
+    midi = int(round(librosa.hz_to_midi(pitch)))
+    midi = max(60, min(79, midi))
+    notes_map = {0: "C", 1: "_D", 2: "D", 3: "_E", 4: "E", 5: "F",
+                 6: "_G", 7: "G", 8: "_A", 9: "A", 10: "_B", 11: "B"}
+    octave = (midi // 12) - 4
+    note_name = notes_map[midi % 12]
+    if octave == 0: return note_name
+    if octave == 1: return note_name.lower()
+    if octave == 2: return note_name.lower() + "'"
+    if octave < 0: return note_name + ("," * abs(octave))
+    return note_name
+
+
+@app.route('/api/build_score', methods=['POST'])
+def build_score():
+    try:
+        data = request.json
+        melody_data = data.get('melody', [])
+        bpm = data.get('bpm', 120)
+        key_info = data.get('key', {"key": "C"})
+        lyrics = data.get('lyrics', "")
+
+        abc = f"X:1\nT:Melody\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_info.get('key', 'C')}\n"
+        sec_per_8th = (60.0 / bpm) / 2
+        tokens = [c for c in lyrics.replace('\n', ' ').split() if c.strip()]
+        ly_idx = 0
+        cur_t = 0.0
+        m_8ths = 0
+
+        for note in melody_data:
+            s_8th = round(note['t'] / sec_per_8th)
+            while cur_t < s_8th * sec_per_8th:
+                abc += "z"
+                m_8ths += 1
+                if m_8ths >= 8:
+                    abc += " | "
+                    m_8ths = 0
+                cur_t += sec_per_8th
+
+            dur = max(1, round(note['dur'] / sec_per_8th))
+            abc += pitch_to_abc(note['pitch'])
+            if dur > 1: abc += str(dur)
+            if ly_idx < len(tokens):
+                abc += f"\nw: {tokens[ly_idx]}\n"
+                ly_idx += 1
+            m_8ths += dur
+            while m_8ths >= 8:
+                abc += " | "
+                m_8ths -= 8
+            cur_t += dur * sec_per_8th
+
+        return jsonify({"abc": abc})
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
