@@ -3,6 +3,7 @@ import uuid
 import numpy as np
 import librosa
 import soundfile as sf
+import gc
 import traceback
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
@@ -77,7 +78,10 @@ def analyze():
         print(f"[*] Analyzing file (Stage 3: Key Detection)")
         key_info = get_musical_key(y, sr)
         
-        data_store[file_id] = {"path": filepath, "y": y, "sr": sr}
+        # Performance: Don't store the full audio array Y and SR in RAM 
+        # to prevent OOM on 512MB RAM free-tier servers.
+        data_store[file_id] = {"path": filepath}
+        gc.collect() # Immediate cleanup
         
         print(f"[*] Analysis Success: {file_id}")
         return jsonify({
@@ -100,18 +104,18 @@ def extract_melody():
         if not fid or fid not in data_store:
             return jsonify({"error": "File not found"}), 404
             
-        y_orig = data_store[fid]["y"]
-        sr_orig = data_store[fid]["sr"]
+        audio_path = data_store[fid]["path"]
         
         # Stability: 1. Resample to 22050 for lighter processing
-        # Limit to first 180 seconds to avoid memory crash
-        max_samples = 180 * 22050
-        y = librosa.resample(y_orig[:180 * sr_orig], orig_sr=sr_orig, target_sr=22050)
-        sr = 22050
+        # Optimization: Resample to a lower rate to reduce memory usage
+        y, sr = librosa.load(audio_path, sr=16000, duration=180.0) # Lowered to 16k for RAM
+        gc.collect() # Clean up after load
         
         # 1. Pitch Tracking (Efficient Hop)
         hop = 512
-        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, n_fft=2048)
+        # Use more memory-efficient magnitude threshold
+        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=512, fmin=75, fmax=1000)
+        gc.collect() # Clean up after piptrack
         
         # 2. Onset Detection (Finding where notes start)
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
