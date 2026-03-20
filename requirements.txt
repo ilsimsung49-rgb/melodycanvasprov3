@@ -1,0 +1,10 @@
+flask>=2.2.0
+flask-cors>=3.0.0
+librosa==0.10.1
+numpy==1.23.5
+scipy==1.10.1
+soundfile>=0.12.0
+audioread>=3.0.0
+gunicorn==20.1.0
+setuptools
+typing-extensions>=4.0.0
