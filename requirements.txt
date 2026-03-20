@@ -1,5 +1,23 @@
 flask
 flask-cors
 gunicorn
-librosa
 numpy<2.0.0
+scipy
+soundfile
+audioread
+resampy
+scikit-learn
+llvmlite==0.41.1
+numba==0.58.1
+librosa==0.10.2
+```
+
+버전을 명시해서 Render가 pre-built wheel(바이너리)을 직접 다운받도록 강제하는 방식입니다. 소스 컴파일 없이 설치되어 메모리 문제가 해결됩니다.
+
+---
+
+## 추가로 Render 대시보드에서
+
+**Environment** 탭 → 환경변수 추가:
+```
+PIP_NO_CACHE_DIR = false
