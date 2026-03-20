@@ -1,0 +1,5 @@
+flask
+flask-cors
+gunicorn
+librosa
+numpy<2.0.0
