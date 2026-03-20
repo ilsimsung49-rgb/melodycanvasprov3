@@ -172,7 +172,6 @@
     const rawLyrics = document.getElementById('full-lyrics').value;
     const parts = rawLyrics.split(/\n\n+/).filter(p => p.trim());
     
-    // RESET sections to avoid accumulation (Fixes Verse 5, 6, 7 bug)
     state.sections = [];
     for(let i=0; i<parts.length; i++) {
         const name = parts[i].match(/^\[(.*?)\]/);
@@ -181,7 +180,6 @@
     }
     renderSections();
 
-    // Use values from input fields
     const manualBpm = parseInt(document.getElementById('score-tempo').value) || 120;
     const manualKey = document.getElementById('score-key').value || 'C';
 
@@ -217,28 +215,24 @@
     
     document.getElementById('status-1').innerText = '🖼️ 사진 파일(PNG) 생성 중...';
     
-    // 1. Get SVG data and size
     const svgData = new XMLSerializer().serializeToString(svg);
     const svgRect = svg.getBoundingClientRect();
-    const width = svgRect.width * 2; // High resolution
+    const width = svgRect.width * 2;
     const height = svgRect.height * 2;
     
-    // 2. Load into Image
     const img = new Image();
     const svgBlob = new Blob([svgData], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(svgBlob);
     
     img.onload = () => {
-      // 3. Draw on Canvas
       const canvas = document.createElement("canvas");
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "white"; // White background
+      ctx.fillStyle = "white";
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       
-      // 4. Download as PNG
       const pngUrl = canvas.toDataURL("image/png");
       const a = document.createElement("a");
       a.href = pngUrl;
