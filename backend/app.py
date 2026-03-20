@@ -8,7 +8,8 @@ import traceback
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
-app = Flask(__name__)
+# Adjusted for Render's folder structure
+app = Flask(__name__, static_folder='../frontend')
 CORS(app)
 
 UPLOAD_FOLDER = 'uploads'
@@ -17,10 +18,26 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # Shared state (In-memory, clears on restart)
 data_store = {}
 
+# --- ROOT ROUTE: Serve frontend ---
+@app.route('/')
+def index():
+    # Looking for index.html in the frontend folder (at same level as backend)
+    # The '../frontend' static_folder setting handles this if defined correctly.
+    # Manually serving for 100% certainty:
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_dir = os.path.join(os.path.dirname(root_dir), 'frontend')
+    return send_from_directory(frontend_dir, 'index.html')
+
+@app.route('/<path:path>')
+def serve_static(path):
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    frontend_dir = os.path.join(os.path.dirname(root_dir), 'frontend')
+    return send_from_directory(frontend_dir, path)
+
+# --- API ROUTES ---
 def get_musical_key(y, sr):
     """Extreme memory-efficient musical key detection."""
     try:
-        # Use simple STFT chroma which is MUCH lighter than CQT
         chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=2048, hop_length=2048)
         mean_chroma = np.mean(chroma, axis=1)
         del chroma
@@ -57,17 +74,14 @@ def analyze():
         filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{safe_filename}")
         file.save(filepath)
         
-        print(f"[*] Analyzing Stage 1 (Metadata): {filepath}")
-        # Use ultra-low SR (8000) and short duration (60s) for metadata to save RAM
+        print(f"[*] Metadata Check: {filepath}")
         y, sr = librosa.load(filepath, sr=8000, duration=60.0, mono=True)
         gc.collect()
 
-        print(f"[*] Analyzing Stage 2 (Tempo)")
         tempo_raw, beats = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.mean(tempo_raw)) if isinstance(tempo_raw, np.ndarray) else float(tempo_raw)
         gc.collect()
 
-        print(f"[*] Analyzing Stage 3 (Key)")
         key_info = get_musical_key(y, sr)
         
         del y
@@ -96,8 +110,7 @@ def extract_melody():
             
         audio_path = data_store[fid]["path"]
         
-        print(f"[*] Heavy Extraction: {audio_path}")
-        # 16000 SR for high percussion quality but within 512MB RAM
+        print(f"[*] Extracting: {audio_path}")
         y, sr = librosa.load(audio_path, sr=16000, duration=180.0)
         gc.collect()
         
@@ -127,7 +140,6 @@ def extract_melody():
                         if pitch > 50:
                             melody.append({'t': float(t_start), 'dur': float(t_end - t_start), 'pitch': float(pitch)})
         
-        # Cleanup
         del y, pitches, magnitudes, onset_env
         gc.collect()
         
@@ -139,13 +151,10 @@ def extract_melody():
 def pitch_to_abc(pitch, key_info):
     if pitch <= 0: return ""
     midi = int(round(librosa.hz_to_midi(pitch)))
-    # Vocal range 60-79 (C4 to G5)
     midi = max(60, min(79, midi))
-    
     notes_map = {0: "C", 1: "_D", 2: "D", 3: "_E", 4: "E", 5: "F", 6: "_G", 7: "G", 8: "_A", 9: "A", 10: "_B", 11: "B"}
     octave = (midi // 12) - 4
     note_name = notes_map[midi % 12]
-    
     if octave == 0: return note_name
     if octave == 1: return note_name.lower()
     if octave == 2: return note_name.lower() + "'"
@@ -161,11 +170,9 @@ def build_score():
         key_info = data.get('key', {"key": "C", "scale": "major"})
         lyrics = data.get('lyrics', "")
         
-        import re
         lines = lyrics.split('\n')
         sections = []
         current_section = None
-        
         for line in lines:
             line = line.strip()
             if not line: continue
@@ -182,11 +189,9 @@ def build_score():
         abc = f"X:1\nT:Melody Canvas Score\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_char}\n"
         sec_per_beat = 60.0 / bpm
         sec_per_8th = sec_per_beat / 2
-        
         lyric_idx = 0
         total_lyrics = []
         for s in sections: total_lyrics.extend(s['lyrics'])
-        
         current_time = 0.0
         measure_8ths = 0
         
@@ -204,11 +209,9 @@ def build_score():
             dur_8ths = max(1, round(note['dur'] / sec_per_8th))
             abc += abc_note
             if dur_8ths > 1: abc += str(dur_8ths)
-            
             if lyric_idx < len(total_lyrics):
                 abc += f'w: {total_lyrics[lyric_idx]}\n'
                 lyric_idx += 1
-            
             measure_8ths += dur_8ths
             while measure_8ths >= 8:
                 abc += " | "
@@ -221,4 +224,6 @@ def build_score():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    # Default port for Render
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
