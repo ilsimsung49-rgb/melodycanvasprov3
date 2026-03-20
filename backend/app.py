@@ -18,14 +18,15 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 data_store = {}
 
 def get_musical_key(y, sr):
-    """Memory-efficient musical key detection."""
+    """Extreme memory-efficient musical key detection."""
     try:
-        # Use a large hop length to save RAM
-        chroma = librosa.feature.chroma_cqt(y=y, sr=sr, hop_length=1024)
+        # Use simple STFT chroma which is MUCH lighter than CQT
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=2048, hop_length=2048)
         mean_chroma = np.mean(chroma, axis=1)
+        del chroma
+        gc.collect()
         
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        # Simple profiles
         major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
         minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
         
@@ -36,13 +37,12 @@ def get_musical_key(y, sr):
         min_idx = np.argmax(minor_corrs)
         
         if major_corrs[maj_idx] > minor_corrs[min_idx]:
-            return {"key": keys[maj_idx], "scale": "major"}
+            return {"key": keys[maj_idx], "scale": "major", "key_str": f"{keys[maj_idx]} Major"}
         else:
-            return {"key": keys[min_idx], "scale": "minor"}
+            return {"key": keys[min_idx], "scale": "minor", "key_str": f"{keys[min_idx]} Minor"}
     except:
-        return {"key": "C", "scale": "major"}
+        return {"key": "C", "scale": "major", "key_str": "C Major"}
     finally:
-        if 'chroma' in locals(): del chroma
         gc.collect()
 
 @app.route('/api/analyze', methods=['POST'])
@@ -57,20 +57,19 @@ def analyze():
         filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{safe_filename}")
         file.save(filepath)
         
-        print(f"[*] Stage 1 (Load): {filepath}")
-        # Use low SR (11025) for initial metadata check to save RAM
-        y, sr = librosa.load(filepath, sr=11025, duration=120, mono=True)
+        print(f"[*] Analyzing Stage 1 (Metadata): {filepath}")
+        # Use ultra-low SR (8000) and short duration (60s) for metadata to save RAM
+        y, sr = librosa.load(filepath, sr=8000, duration=60.0, mono=True)
         gc.collect()
 
-        print(f"[*] Stage 2 (Beats)")
+        print(f"[*] Analyzing Stage 2 (Tempo)")
         tempo_raw, beats = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.mean(tempo_raw)) if isinstance(tempo_raw, np.ndarray) else float(tempo_raw)
         gc.collect()
 
-        print(f"[*] Stage 3 (Key)")
+        print(f"[*] Analyzing Stage 3 (Key)")
         key_info = get_musical_key(y, sr)
         
-        # CLEAR RAM IMMEDIATELY - only store path
         del y
         gc.collect()
         
@@ -97,13 +96,13 @@ def extract_melody():
             
         audio_path = data_store[fid]["path"]
         
-        print(f"[*] Extraction Load: {audio_path}")
-        # Use 16000 for melody analysis (good balance of precision and RAM)
+        print(f"[*] Heavy Extraction: {audio_path}")
+        # 16000 SR for high percussion quality but within 512MB RAM
         y, sr = librosa.load(audio_path, sr=16000, duration=180.0)
         gc.collect()
         
         hop = 512
-        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, fmin=75, fmax=1000)
+        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, fmin=75, fmax=800)
         gc.collect()
         
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
@@ -162,7 +161,6 @@ def build_score():
         key_info = data.get('key', {"key": "C", "scale": "major"})
         lyrics = data.get('lyrics', "")
         
-        # Syllabification (Basic)
         import re
         lines = lyrics.split('\n')
         sections = []
@@ -174,19 +172,14 @@ def build_score():
             if line.startswith('[') and line.endswith(']'):
                 current_section = line[1:-1]
                 continue
-            
-            # Clean and split Korean syllables
             chars = [c for c in line if c.strip()]
             if chars:
                 sections.append({"name": current_section or "Verse", "lyrics": chars})
-
-        # ABC Construction
+        
         key_char = key_info['key']
         if key_info['scale'] == 'minor': key_char += "m"
         
         abc = f"X:1\nT:Melody Canvas Score\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_char}\n"
-        
-        # Grid settings (8th note resolution)
         sec_per_beat = 60.0 / bpm
         sec_per_8th = sec_per_beat / 2
         
@@ -197,10 +190,8 @@ def build_score():
         current_time = 0.0
         measure_8ths = 0
         
-        # Group melody into 8th note slots
         for note in melody_data:
             start_8th = round(note['t'] / sec_per_8th)
-            # Add rests
             while current_time < start_8th * sec_per_8th:
                 abc += "z"
                 measure_8ths += 1
@@ -209,16 +200,12 @@ def build_score():
                     measure_8ths = 0
                 current_time += sec_per_8th
             
-            # Add note
             abc_note = pitch_to_abc(note['pitch'], key_info)
             dur_8ths = max(1, round(note['dur'] / sec_per_8th))
-            
             abc += abc_note
             if dur_8ths > 1: abc += str(dur_8ths)
             
-            # Add lyric if available
             if lyric_idx < len(total_lyrics):
-                # Using inline lyrics for ABCJS
                 abc += f'w: {total_lyrics[lyric_idx]}\n'
                 lyric_idx += 1
             
