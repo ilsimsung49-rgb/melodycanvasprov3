@@ -8,3 +8,5 @@ audioread>=3.0.0
 werkzeug>=2.2.0
 gunicorn==20.1.0
 setuptools
+numba==0.58.1
+typing-extensions>=4.0.0

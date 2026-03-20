@@ -9,43 +9,44 @@ import tempfile
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 
-# 1. Path Configuration (Ultra-Safe for Render)
+# Absolute Path Configuration
 root_dir = os.path.dirname(os.path.abspath(__file__))
 frontend_dir = os.path.join(root_dir, 'frontend')
-
-# Render allows writing to /tmp/ regardless of app permissions
 UPLOAD_FOLDER = os.path.join(tempfile.gettempdir(), 'melody_uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app = Flask(__name__, static_folder=frontend_dir)
 CORS(app)
 
-# Shared state (In-memory, clears on restart)
+# Global Data Store
 data_store = {}
 
-# --- ROOT ROUTE: Serve the entrance ---
+# --- STATIC ASSETS: Guaranteed Pathing ---
 @app.route('/')
 def index():
-    if not os.path.exists(os.path.join(frontend_dir, 'index.html')):
-        return "Internal Error: Frontend files missing. Please check your GitHub structure.", 500
     return send_from_directory(frontend_dir, 'index.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    if os.path.exists(os.path.join(frontend_dir, path)):
+    # Check if the requested file exists in the frontend folder
+    full_path = os.path.join(frontend_dir, path)
+    if os.path.exists(full_path):
         return send_from_directory(frontend_dir, path)
+    # Fallback to index.html for Single Page application support
     return send_from_directory(frontend_dir, 'index.html')
 
-# --- LIGHTWEIGHT MUSICAL ANALYSIS ---
+# --- MUSICAL BRAIN: Optimized for 512MB RAM ---
 def get_musical_key(y, sr):
-    """Memory-efficient key detection using simple Chroma STFT."""
+    """Meticulously tuned key detection with tiny memory footprint."""
     try:
-        # High hop_length to minimize memory grid
+        # Use simple STFT with large hop to minimize peak memory spikes
+        # n_fft 2048 / hop 2048 = 1 sample per frame
         chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=2048, hop_length=2048)
         mean_chroma = np.mean(chroma, axis=1)
         del chroma; gc.collect()
         
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        # Krumhansl-Schmuckler profiles
         major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
         minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
         
@@ -75,9 +76,10 @@ def analyze():
         filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{safe_filename}")
         file.save(filepath)
         
-        print(f"[*] Lightning Metadata Scan (30s buffer): {filepath}")
-        # Phase 1: Rapid 30-sec scan at low sample rate to avoid 502 Proxy Timeout (30s)
-        y, sr = librosa.load(filepath, sr=8000, duration=30.0, mono=True)
+        print(f"[*] Analyzing Stage 1 (10s): {filepath}")
+        # Phase 1: ULTRA-RAPID 10-sec scan at 8kHz
+        # This is the 'safest' way to avoid 502/OOM errors on Render Free Tier
+        y, sr = librosa.load(filepath, sr=8000, duration=10.0, mono=True)
         gc.collect()
 
         tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
@@ -85,10 +87,8 @@ def analyze():
         gc.collect()
 
         key_info = get_musical_key(y, sr)
-        
         del y; gc.collect()
         
-        # Store metadata for stage 2
         data_store[file_id] = {"path": filepath, "tempo": tempo}
         
         return jsonify({
@@ -106,13 +106,13 @@ def extract_melody():
         data = request.json
         fid = data.get('file_id')
         if not fid or fid not in data_store:
-            return jsonify({"error": "File ID session expired. Please re-upload."}), 404
+            return jsonify({"error": "Session lost. Please re-upload your file."}), 404
         
         audio_path = data_store[fid]["path"]
         
-        print(f"[*] Full Extraction (SR=11025 for max stability): {audio_path}")
-        # High-stability sample rate to process up to 3 mins on 512MB RAM
-        y, sr = librosa.load(audio_path, sr=11025, duration=180.0)
+        print(f"[*] Analyzing Stage 2 (180s Vocal Trace): {audio_path}")
+        # 8kHz Sample Rate is chosen for ultimate memory stability (512MB limit)
+        y, sr = librosa.load(audio_path, sr=8000, duration=180.0)
         gc.collect()
         
         hop = 512
@@ -150,7 +150,7 @@ def extract_melody():
 def pitch_to_abc(pitch, key_info):
     if pitch <= 0: return ""
     midi = int(round(librosa.hz_to_midi(pitch)))
-    # Range check (C4-G5)
+    # Vocal range limit (C4 to G5)
     midi = max(60, min(79, midi))
     notes_map = {0: "C", 1: "_D", 2: "D", 3: "_E", 4: "E", 5: "F", 6: "_G", 7: "G", 8: "_A", 9: "A", 10: "_B", 11: "B"}
     octave = (midi // 12) - 4
@@ -170,7 +170,7 @@ def build_score():
         key_info = data.get('key', {"key": "C", "scale": "major"})
         lyrics = data.get('lyrics', "")
         
-        # Syllable splitting
+        # Meticulous Lyric Parsing
         lines = lyrics.split('\n')
         sections = []
         current_section = None
@@ -184,12 +184,11 @@ def build_score():
             if chars:
                 sections.append({"name": current_section or "Verse", "lyrics": chars})
         
-        key_str = key_info.get('key', 'C')
-        if key_info.get('scale') == 'minor': key_str += "m"
+        key_char = key_info.get('key', 'C')
+        if key_info.get('scale') == 'minor': key_char += "m"
         
-        abc = f"X:1\nT:Melody Canvas Score\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_str}\n"
+        abc = f"X:1\nT:Melody Canvas Score\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_char}\n"
         
-        # Grid settings (8th-note resolution)
         sec_per_beat = 60.0 / bpm
         sec_per_8th = sec_per_beat / 2
         
@@ -202,7 +201,7 @@ def build_score():
         
         for note in melody_data:
             start_8th = round(note['t'] / sec_per_8th)
-            # Rests
+            # Fill with rests
             while current_time < start_8th * sec_per_8th:
                 abc += "z"
                 measure_8ths += 1
@@ -217,7 +216,7 @@ def build_score():
             abc += abc_note
             if dur_8ths > 1: abc += str(dur_8ths)
             
-            # LYRICS SYNC: Inline w: line per note block
+            # Sync lyrics precisely per note
             if lyric_idx < len(total_lyrics):
                 abc += f"\nw: {total_lyrics[lyric_idx]}\n"
                 lyric_idx += 1
@@ -234,6 +233,6 @@ def build_score():
         return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
-    # Dynamic port for Render deployment
+    # Final production port assignment
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
