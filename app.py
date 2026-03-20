@@ -21,41 +21,32 @@ CORS(app)
 # Global Data Store
 data_store = {}
 
-# --- STATIC ASSETS: Guaranteed Pathing ---
+# --- STATIC ASSETS ---
 @app.route('/')
 def index():
     return send_from_directory(frontend_dir, 'index.html')
 
 @app.route('/<path:path>')
 def serve_static(path):
-    # Check if the requested file exists in the frontend folder
     full_path = os.path.join(frontend_dir, path)
     if os.path.exists(full_path):
         return send_from_directory(frontend_dir, path)
-    # Fallback to index.html for Single Page application support
     return send_from_directory(frontend_dir, 'index.html')
 
-# --- MUSICAL BRAIN: Optimized for 512MB RAM ---
+# --- MUSICAL BRAIN ---
 def get_musical_key(y, sr):
-    """Meticulously tuned key detection with tiny memory footprint."""
+    """Memory-efficient key detection."""
     try:
-        # Use simple STFT with large hop to minimize peak memory spikes
-        # n_fft 2048 / hop 2048 = 1 sample per frame
         chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=2048, hop_length=2048)
         mean_chroma = np.mean(chroma, axis=1)
         del chroma; gc.collect()
-        
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-        # Krumhansl-Schmuckler profiles
         major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
         minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
-        
         major_corrs = [np.corrcoef(mean_chroma, np.roll(major_profile, i))[0, 1] for i in range(12)]
         minor_corrs = [np.corrcoef(mean_chroma, np.roll(minor_profile, i))[0, 1] for i in range(12)]
-        
         maj_idx = np.argmax(major_corrs)
         min_idx = np.argmax(minor_corrs)
-        
         if major_corrs[maj_idx] > minor_corrs[min_idx]:
             return {"key": keys[maj_idx], "scale": "major", "key_str": f"{keys[maj_idx]} Major"}
         else:
@@ -76,10 +67,9 @@ def analyze():
         filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{safe_filename}")
         file.save(filepath)
         
-        print(f"[*] Analyzing Stage 1 (10s): {filepath}")
-        # Phase 1: ULTRA-RAPID 10-sec scan at 8kHz
-        # This is the 'safest' way to avoid 502/OOM errors on Render Free Tier
-        y, sr = librosa.load(filepath, sr=8000, duration=10.0, mono=True)
+        print(f"[*] Lightning Metadata Scan (5s pre-heated): {filepath}")
+        # Phase 1: ULTRA-RAPID 5-sec scan to avoid 30s Proxy timeout
+        y, sr = librosa.load(filepath, sr=8000, duration=5.0, mono=True)
         gc.collect()
 
         tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
@@ -106,12 +96,10 @@ def extract_melody():
         data = request.json
         fid = data.get('file_id')
         if not fid or fid not in data_store:
-            return jsonify({"error": "Session lost. Please re-upload your file."}), 404
+            return jsonify({"error": "Session lost. Re-upload file."}), 404
         
         audio_path = data_store[fid]["path"]
-        
-        print(f"[*] Analyzing Stage 2 (180s Vocal Trace): {audio_path}")
-        # 8kHz Sample Rate is chosen for ultimate memory stability (512MB limit)
+        print(f"[*] Extraction (SR=8000 for stability): {audio_path}")
         y, sr = librosa.load(audio_path, sr=8000, duration=180.0)
         gc.collect()
         
@@ -127,7 +115,6 @@ def extract_melody():
         melody = []
         max_mag = np.max(magnitudes) if magnitudes.size > 0 else 1.0
         threshold = max_mag * 0.1 
-        
         if len(onset_times) > 0:
             for i in range(len(onset_times)):
                 t_start = onset_times[i]
@@ -150,7 +137,6 @@ def extract_melody():
 def pitch_to_abc(pitch, key_info):
     if pitch <= 0: return ""
     midi = int(round(librosa.hz_to_midi(pitch)))
-    # Vocal range limit (C4 to G5)
     midi = max(60, min(79, midi))
     notes_map = {0: "C", 1: "_D", 2: "D", 3: "_E", 4: "E", 5: "F", 6: "_G", 7: "G", 8: "_A", 9: "A", 10: "_B", 11: "B"}
     octave = (midi // 12) - 4
@@ -169,8 +155,6 @@ def build_score():
         bpm = data.get('bpm', 120)
         key_info = data.get('key', {"key": "C", "scale": "major"})
         lyrics = data.get('lyrics', "")
-        
-        # Meticulous Lyric Parsing
         lines = lyrics.split('\n')
         sections = []
         current_section = None
@@ -183,25 +167,18 @@ def build_score():
             chars = [c for c in line if c.strip()]
             if chars:
                 sections.append({"name": current_section or "Verse", "lyrics": chars})
-        
-        key_char = key_info.get('key', 'C')
-        if key_info.get('scale') == 'minor': key_char += "m"
-        
-        abc = f"X:1\nT:Melody Canvas Score\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_char}\n"
-        
+        key_str = key_info.get('key', 'C')
+        if key_info.get('scale') == 'minor': key_str += "m"
+        abc = f"X:1\nT:Melody Canvas Score\nM:4/4\nL:1/8\nQ:1/4={int(bpm)}\nK:{key_str}\n"
         sec_per_beat = 60.0 / bpm
         sec_per_8th = sec_per_beat / 2
-        
         lyric_idx = 0
         total_lyrics = []
         for s in sections: total_lyrics.extend(s['lyrics'])
-        
         current_time = 0.0
         measure_8ths = 0
-        
         for note in melody_data:
             start_8th = round(note['t'] / sec_per_8th)
-            # Fill with rests
             while current_time < start_8th * sec_per_8th:
                 abc += "z"
                 measure_8ths += 1
@@ -209,30 +186,32 @@ def build_score():
                     abc += " | "
                     measure_8ths = 0
                 current_time += sec_per_8th
-            
             abc_note = pitch_to_abc(note['pitch'], key_info)
             dur_8ths = max(1, round(note['dur'] / sec_per_8th))
-            
             abc += abc_note
             if dur_8ths > 1: abc += str(dur_8ths)
-            
-            # Sync lyrics precisely per note
             if lyric_idx < len(total_lyrics):
                 abc += f"\nw: {total_lyrics[lyric_idx]}\n"
                 lyric_idx += 1
-            
             measure_8ths += dur_8ths
             while measure_8ths >= 8:
                 abc += " | "
                 measure_8ths -= 8
             current_time += dur_8ths * sec_per_8th
-
         return jsonify({"abc": abc})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+# --- ENGINE WARM-UP: Critical for Cold Starts ---
+print("[*] Pre-heating music engine to avoid cold-start timeouts...")
+try:
+    dummy_y = np.zeros(8000)
+    librosa.beat.beat_track(y=dummy_y, sr=8000)
+    del dummy_y; gc.collect()
+except: 
+    print("[!] Warm-up failed, continuing anyway.")
+
 if __name__ == '__main__':
-    # Final production port assignment
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
