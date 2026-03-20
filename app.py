@@ -31,16 +31,17 @@ def index():
 def serve_static(path):
     if os.path.exists(os.path.join(frontend_dir, path)):
         return send_from_directory(frontend_dir, path)
-    return send_from_directory(frontend_dir, 'index.html') # Fallback to index for SPA feel
+    return send_from_directory(frontend_dir, 'index.html')
 
 # --- API ROUTES ---
 def get_musical_key(y, sr):
-    """Extreme memory-efficient musical key detection."""
+    """Ultra-fast key detection."""
     try:
-        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=2048, hop_length=2048)
+        # Use simple STFT chroma which is MUCH lighter than CQT
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=2048, hop_length=1024)
         mean_chroma = np.mean(chroma, axis=1)
-        del chroma
-        gc.collect()
+        del chroma; gc.collect()
+        
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
         minor_profile = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
@@ -67,15 +68,22 @@ def analyze():
         safe_filename = "".join([c for c in file.filename if c.isalnum() or c in "._-"])
         filepath = os.path.join(UPLOAD_FOLDER, f"{file_id}_{safe_filename}")
         file.save(filepath)
-        y, sr = librosa.load(filepath, sr=8000, duration=60.0, mono=True)
+        
+        print(f"[*] Lightning Metadata Scan: {filepath}")
+        # DRastic: Only analyze 30s to stay under 30s timeout AND 512MB RAM
+        y, sr = librosa.load(filepath, sr=8000, duration=30.0, mono=True)
         gc.collect()
+
         tempo_raw, beats = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.mean(tempo_raw)) if isinstance(tempo_raw, np.ndarray) else float(tempo_raw)
         gc.collect()
+
         key_info = get_musical_key(y, sr)
-        del y
-        gc.collect()
+        
+        del y; gc.collect()
+        
         data_store[file_id] = {"path": filepath}
+        
         return jsonify({
             "file_id": file_id, "filename": file.filename, 
             "beat": {"bpm": round(tempo), "beats": beats.tolist()},
@@ -93,15 +101,21 @@ def extract_melody():
         if not fid or fid not in data_store:
             return jsonify({"error": "File not found"}), 404
         audio_path = data_store[fid]["path"]
-        y, sr = librosa.load(audio_path, sr=16000, duration=180.0)
+        
+        print(f"[*] Heavy Extraction Start (SR=11025 for max stability): {audio_path}")
+        # Further SR reduction to 11025 for absolute RAM stability
+        y, sr = librosa.load(audio_path, sr=11025, duration=180.0)
         gc.collect()
+        
         hop = 512
         pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, fmin=75, fmax=800)
         gc.collect()
+        
         onset_env = librosa.onset.onset_strength(y=y, sr=sr)
         onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=sr, hop_length=hop)
         onset_times = librosa.frames_to_time(onsets, sr=sr, hop_length=hop)
         gc.collect()
+        
         melody = []
         max_mag = np.max(magnitudes) if magnitudes.size > 0 else 1.0
         threshold = max_mag * 0.1 
@@ -117,8 +131,7 @@ def extract_melody():
                         pitch = pitches[idx, center_frame]
                         if pitch > 50:
                             melody.append({'t': float(t_start), 'dur': float(t_end - t_start), 'pitch': float(pitch)})
-        del y, pitches, magnitudes, onset_env
-        gc.collect()
+        del y, pitches, magnitudes, onset_env; gc.collect()
         return jsonify({"melody": melody})
     except Exception as e:
         traceback.print_exc()
