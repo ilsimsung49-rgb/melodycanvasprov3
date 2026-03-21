@@ -12,37 +12,29 @@
     header h1 { font-size: 1.8rem; color: #a78bfa; letter-spacing: 2px; }
     header p { color: #9ca3af; font-size: 0.85rem; margin-top: 4px; }
     .container { max-width: 900px; margin: 40px auto; padding: 0 20px; }
-
     .card { background: #1a1a2e; border: 1px solid #2d2d5e; border-radius: 12px; padding: 28px; margin-bottom: 24px; }
     .card h2 { font-size: 1rem; color: #a78bfa; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
-
     .upload-zone { border: 2px dashed #4c4c8a; border-radius: 10px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
     .upload-zone:hover, .upload-zone.drag { border-color: #a78bfa; background: #1e1e3f; }
     .upload-zone input { display: none; }
     .upload-zone .icon { font-size: 2.5rem; margin-bottom: 12px; }
     .upload-zone p { color: #9ca3af; font-size: 0.9rem; }
-
     .btn { background: linear-gradient(135deg, #7c3aed, #4f46e5); color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: opacity 0.2s; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .btn-outline { background: transparent; border: 1px solid #4c4c8a; color: #a78bfa; }
     .btn-outline:hover { background: #2d2d5e; opacity: 1; }
-
     .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .result-item { background: #0f0f1a; border-radius: 8px; padding: 16px; text-align: center; }
     .result-item .label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; margin-bottom: 6px; }
     .result-item .value { font-size: 1.8rem; font-weight: bold; color: #a78bfa; }
-
     .status-bar { background: #0f0f1a; border-radius: 8px; padding: 12px 16px; font-size: 0.85rem; color: #9ca3af; display: flex; align-items: center; gap: 10px; }
     .spinner { width: 16px; height: 16px; border: 2px solid #4c4c8a; border-top-color: #a78bfa; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
     @keyframes spin { to { transform: rotate(360deg); } }
-
     textarea { width: 100%; background: #0f0f1a; border: 1px solid #2d2d5e; border-radius: 8px; color: #e0e0ff; padding: 12px; font-size: 0.9rem; resize: vertical; min-height: 80px; }
     textarea:focus { outline: none; border-color: #a78bfa; }
-
     #score-output { background: white; border-radius: 8px; padding: 16px; min-height: 100px; }
     .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-
     .hidden { display: none !important; }
     #section-results, #section-melody, #section-score { display: none; }
   </style>
@@ -55,8 +47,6 @@
 </header>
 
 <div class="container">
-
-  <!-- 업로드 -->
   <div class="card">
     <h2>🎧 오디오 업로드</h2>
     <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
@@ -69,13 +59,11 @@
     </div>
   </div>
 
-  <!-- 상태 -->
   <div class="status-bar hidden" id="status-bar">
     <div class="spinner" id="spinner"></div>
     <span id="status-text">분석 중...</span>
   </div>
 
-  <!-- 결과 -->
   <div class="card" id="section-results">
     <h2>📊 분석 결과</h2>
     <div class="result-grid">
@@ -93,7 +81,6 @@
     </div>
   </div>
 
-  <!-- 멜로디 → 악보 -->
   <div class="card" id="section-melody">
     <h2>🎼 악보 생성</h2>
     <p style="color:#9ca3af; font-size:0.85rem; margin-bottom:12px;">가사를 입력하면 악보에 함께 표시됩니다 (선택)</p>
@@ -103,7 +90,6 @@
     </div>
   </div>
 
-  <!-- 악보 출력 -->
   <div class="card" id="section-score">
     <h2>🎹 악보</h2>
     <div id="score-output"></div>
@@ -111,30 +97,19 @@
       <button class="btn btn-outline" onclick="copyAbc()">ABC 복사</button>
     </div>
   </div>
-
 </div>
 
 <script>
-  let fileObj = null;
-  let fileId = null;
-  let analysisResult = null;
-  let melodyData = null;
-  let abcData = null;
-  let pollTimer = null;
+  let fileObj = null, fileId = null, analysisResult = null, melodyData = null, abcData = null, pollTimer = null;
 
-  // ── 파일 선택 ──
   const fileInput = document.getElementById('file-input');
   const uploadZone = document.getElementById('upload-zone');
 
-  fileInput.addEventListener('change', () => {
-    if (fileInput.files[0]) setFile(fileInput.files[0]);
-  });
-
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
   uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
   uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
   uploadZone.addEventListener('drop', e => {
-    e.preventDefault();
-    uploadZone.classList.remove('drag');
+    e.preventDefault(); uploadZone.classList.remove('drag');
     if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
   });
 
@@ -144,36 +119,28 @@
     document.getElementById('btn-analyze').disabled = false;
   }
 
-  // ── 분석 시작 ──
   async function startAnalyze() {
     if (!fileObj) return;
     resetResults();
     showStatus('서버에 업로드 중...');
-
     const fd = new FormData();
     fd.append('file', fileObj);
-
     try {
       const res = await fetch('/api/analyze', { method: 'POST', body: fd });
       const data = await res.json();
       if (data.error) { showStatus('❌ ' + data.error, true); return; }
-
       fileId = data.file_id;
       showStatus('분석 중... (백그라운드 처리)');
       pollStatus();
-    } catch(e) {
-      showStatus('❌ 업로드 실패: ' + e.message, true);
-    }
+    } catch(e) { showStatus('❌ 업로드 실패: ' + e.message, true); }
   }
 
-  // ── 폴링 ──
   function pollStatus() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(async () => {
       try {
         const res = await fetch(`/api/status/${fileId}`);
         const data = await res.json();
-
         if (data.status === 'done') {
           clearInterval(pollTimer);
           analysisResult = data;
@@ -183,96 +150,66 @@
           clearInterval(pollTimer);
           showStatus('❌ 분석 오류: ' + data.error, true);
         }
-        // pending이면 계속 폴링
-      } catch(e) {
-        clearInterval(pollTimer);
-        showStatus('❌ 상태 확인 실패', true);
-      }
-    }, 2000); // 2초마다 확인
+      } catch(e) { clearInterval(pollTimer); showStatus('❌ 상태 확인 실패', true); }
+    }, 2000);
   }
 
-  // ── 결과 표시 ──
   function showResults(data) {
     document.getElementById('result-bpm').textContent = data.beat?.bpm ?? '—';
     document.getElementById('result-key').textContent = data.key?.key_str ?? '—';
     document.getElementById('section-results').style.display = 'block';
   }
 
-  // ── 멜로디 추출 ──
   async function extractMelody() {
     document.getElementById('btn-melody').disabled = true;
     showStatus('멜로디 추출 중... (30~60초 소요)');
-
     try {
       const res = await fetch('/api/extract_melody', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ file_id: fileId })
       });
       const data = await res.json();
       if (data.error) { showStatus('❌ ' + data.error, true); document.getElementById('btn-melody').disabled = false; return; }
-
       melodyData = data.melody;
       hideStatus();
       document.getElementById('section-melody').style.display = 'block';
       document.getElementById('btn-melody').disabled = false;
-    } catch(e) {
-      showStatus('❌ 멜로디 추출 실패: ' + e.message, true);
-      document.getElementById('btn-melody').disabled = false;
-    }
+    } catch(e) { showStatus('❌ 멜로디 추출 실패: ' + e.message, true); document.getElementById('btn-melody').disabled = false; }
   }
 
-  // ── 악보 생성 ──
   async function buildScore() {
     if (!melodyData) return;
     document.getElementById('btn-score').disabled = true;
     showStatus('악보 생성 중...');
-
     try {
       const res = await fetch('/api/build_score', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          melody: melodyData,
-          bpm: analysisResult?.beat?.bpm ?? 120,
-          key: analysisResult?.key ?? { key: 'C' },
-          lyrics: document.getElementById('lyrics-input').value
-        })
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ melody: melodyData, bpm: analysisResult?.beat?.bpm ?? 120, key: analysisResult?.key ?? { key: 'C' }, lyrics: document.getElementById('lyrics-input').value })
       });
       const data = await res.json();
       if (data.error) { showStatus('❌ ' + data.error, true); document.getElementById('btn-score').disabled = false; return; }
-
       abcData = data.abc;
       hideStatus();
       document.getElementById('section-score').style.display = 'block';
       ABCJS.renderAbc('score-output', abcData, { responsive: 'resize' });
       document.getElementById('btn-score').disabled = false;
-    } catch(e) {
-      showStatus('❌ 악보 생성 실패: ' + e.message, true);
-      document.getElementById('btn-score').disabled = false;
-    }
+    } catch(e) { showStatus('❌ 악보 생성 실패: ' + e.message, true); document.getElementById('btn-score').disabled = false; }
   }
 
-  // ── ABC 복사 ──
   function copyAbc() {
     if (!abcData) return;
     navigator.clipboard.writeText(abcData).then(() => alert('ABC 노테이션이 복사됐습니다!'));
   }
 
-  // ── UI 헬퍼 ──
   function showStatus(msg, isError = false) {
     const bar = document.getElementById('status-bar');
-    const spinner = document.getElementById('spinner');
     bar.classList.remove('hidden');
     document.getElementById('status-text').textContent = msg;
-    spinner.style.display = isError ? 'none' : 'block';
-    if (isError) bar.style.color = '#f87171';
-    else bar.style.color = '#9ca3af';
+    document.getElementById('spinner').style.display = isError ? 'none' : 'block';
+    bar.style.color = isError ? '#f87171' : '#9ca3af';
   }
 
-  function hideStatus() {
-    document.getElementById('status-bar').classList.add('hidden');
-  }
+  function hideStatus() { document.getElementById('status-bar').classList.add('hidden'); }
 
   function resetResults() {
     fileId = null; analysisResult = null; melodyData = null; abcData = null;
