@@ -99,7 +99,7 @@
     <div class="score-wrap">
       <div id="score-target"></div>
     </div>
-    
+
     <div id="abc-view" style="display:none; margin-top:1rem; background:#010409; color:#58a6ff; padding:1rem; border-radius:8px; font-family:monospace; white-space:pre"></div>
   </div>
 </div>
@@ -136,7 +136,7 @@
   }
   renderSections();
 
-  // ── 파일 업로드 + 폴링 ──
+  // ── 1단계: 파일 업로드 + 분석 폴링 ──
   document.getElementById('audio-file').onchange = async (e) => {
     const file = e.target.files[0];
     if(!file) return;
@@ -148,7 +148,7 @@
       const data = await resp.json();
       state.file_id = data.file_id;
       document.getElementById('score-title').value = file.name.split('.')[0];
-      document.getElementById('status-1').innerText = '⏳ 분석 중... (잠시 기다려 주세요)';
+      document.getElementById('status-1').innerText = '⏳ 분석 중...';
       const poll = setInterval(async () => {
         try {
           const r = await fetch('/api/status/' + state.file_id);
@@ -170,27 +170,54 @@
     } catch(err) { alert('분석 실패: ' + err); }
   };
 
+  // ── 3단계: 멜로디 추출 + 폴링 ──
   async function runAnalysis() {
     if(!state.file_id) return alert('파일을 먼저 업로드하세요');
-    document.getElementById('btn-extract').innerText = '🧬 정밀 멜로디 추출중... (5분 소요)';
-    const resp = await fetch('/api/extract_melody', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({file_id: state.file_id, t_start:0, t_end: 600})
-    });
-    const data = await resp.json();
-    state.melody = data.melody;
-    document.getElementById('btn-extract').innerText = '✅ 추출 완료';
+    const btn = document.getElementById('btn-extract');
+    btn.innerText = '⏳ 멜로디 추출 중...';
+    btn.disabled = true;
+    try {
+      const resp = await fetch('/api/extract_melody', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({file_id: state.file_id})
+      });
+      const data = await resp.json();
+      if(data.error) { btn.innerText = '❌ 오류: ' + data.error; btn.disabled = false; return; }
+
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/melody_status/' + state.file_id);
+          const d = await r.json();
+          if(d.status === 'done') {
+            clearInterval(poll);
+            state.melody = d.melody;
+            btn.innerText = '✅ 추출 완료 (' + d.melody.length + '음)';
+            btn.disabled = false;
+            document.getElementById('status-1').innerText = '✅ 멜로디 추출 완료! 이제 가사 입력 후 악보 생성하세요.';
+          } else if(d.status === 'error') {
+            clearInterval(poll);
+            btn.innerText = '❌ 추출 실패';
+            btn.disabled = false;
+          }
+        } catch(err) { clearInterval(poll); btn.disabled = false; }
+      }, 2000);
+    } catch(err) {
+      btn.innerText = '🧬 전구간 정밀 분석 시작';
+      btn.disabled = false;
+      alert('추출 실패: ' + err);
+    }
   }
 
+  // ── 4단계: 최종 악보 생성 ──
   async function generateFinalScore() {
     const rawLyrics = document.getElementById('full-lyrics').value;
     const parts = rawLyrics.split(/\n\n+/).filter(p => p.trim());
-    
+
     state.sections = [];
     for(let i=0; i<parts.length; i++) {
-        const name = parts[i].match(/^\[(.*?)\]/);
-        const sectionName = name ? name[1] : 'Verse ' + (i+1);
-        state.sections.push({name: sectionName, bars: 8, type: 'vocal', lyrics: parts[i]});
+      const name = parts[i].match(/^\[(.*?)\]/);
+      const sectionName = name ? name[1] : 'Verse ' + (i+1);
+      state.sections.push({name: sectionName, bars: 8, type: 'vocal', lyrics: parts[i]});
     }
     renderSections();
 
@@ -200,23 +227,22 @@
     const payload = {
       title: document.getElementById('score-title').value || 'Lead Sheet',
       style: document.getElementById('score-style').value || 'Medium Swing',
-      beat: { bpm: manualBpm }, 
+      beat: { bpm: manualBpm },
       key: { key_str: manualKey },
       chords: state.chords,
-      melody: state.melody, 
+      melody: state.melody,
       sections: state.sections
     };
-    
+
     document.getElementById('status-1').innerText = '최종 악보 생성 중...';
     try {
       const resp = await fetch('/api/build_score', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
       const result = await resp.json();
       state.abc = result.abc;
-      state.lastXML = result.xml || ""; 
-      
+      state.lastXML = result.xml || "";
       ABCJS.renderAbc("score-target", result.abc, {responsive:'resize', foregroundColor:'#000'});
       document.getElementById('abc-view').innerText = result.abc;
-      document.getElementById('status-1').innerText = '생성 완료! 악보를 이미지로 받으세요.';
+      document.getElementById('status-1').innerText = '✅ 생성 완료! 악보를 이미지로 받으세요.';
     } catch(err) {
       alert('생성 실패: ' + err);
     }
@@ -226,33 +252,23 @@
     if(!state.abc) return alert('먼저 악보를 생성해 주세요.');
     const svg = document.querySelector("#score-target svg");
     if(!svg) return alert('악보 이미지를 찾을 수 없습니다.');
-    
-    document.getElementById('status-1').innerText = '🖼️ 사진 파일(PNG) 생성 중...';
-    
+    document.getElementById('status-1').innerText = '🖼️ PNG 생성 중...';
     const svgData = new XMLSerializer().serializeToString(svg);
     const svgRect = svg.getBoundingClientRect();
     const width = svgRect.width * 2;
     const height = svgRect.height * 2;
-    
     const img = new Image();
     const svgBlob = new Blob([svgData], {type: "image/svg+xml;charset=utf-8"});
     const url = URL.createObjectURL(svgBlob);
-    
     img.onload = () => {
       const canvas = document.createElement("canvas");
-      canvas.width = width;
-      canvas.height = height;
+      canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext("2d");
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, width, height);
+      ctx.fillStyle = "white"; ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
-      
       const pngUrl = canvas.toDataURL("image/png");
       const a = document.createElement("a");
-      a.href = pngUrl;
-      a.download = `melody_score.png`;
-      a.click();
-      
+      a.href = pngUrl; a.download = `melody_score.png`; a.click();
       URL.revokeObjectURL(url);
       document.getElementById('status-1').innerText = '✅ PNG 저장 완료!';
     };
@@ -268,10 +284,10 @@
     const a = document.createElement('a'); a.href = url; a.download = `score.${extension}`; a.click();
   }
 
-  function abcView() { 
+  function abcView() {
     if(!state.abc) return alert('악보를 먼저 생성해 주세요.');
-    const v = document.getElementById('abc-view'); 
-    v.style.display = v.style.display==='none'?'block':'none'; 
+    const v = document.getElementById('abc-view');
+    v.style.display = v.style.display==='none'?'block':'none';
   }
 </script>
 </body>
