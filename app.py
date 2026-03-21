@@ -22,11 +22,11 @@ data_store = {}
 def _run_analysis(file_id, filepath):
     try:
         print(f"[BG] Start: {filepath}")
-        y, sr = librosa.load(filepath, sr=4000, duration=5.0, mono=True)
+        y, sr = librosa.load(filepath, sr=2000, duration=3.0, mono=True)
         gc.collect()
         tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.mean(tempo_raw)) if isinstance(tempo_raw, np.ndarray) else float(tempo_raw)
-        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=1024, hop_length=1024)
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=512, hop_length=512)
         mean_chroma = np.mean(chroma, axis=1)
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
