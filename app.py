@@ -22,11 +22,11 @@ data_store = {}
 def _run_analysis(file_id, filepath):
     try:
         print(f"[BG] Start: {filepath}")
-        y, sr = librosa.load(filepath, sr=2000, duration=3.0, mono=True)
+        y, sr = librosa.load(filepath, sr=2000, duration=2.0, mono=True)
         gc.collect()
         tempo_raw, _ = librosa.beat.beat_track(y=y, sr=sr)
         tempo = float(np.mean(tempo_raw)) if isinstance(tempo_raw, np.ndarray) else float(tempo_raw)
-        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=512, hop_length=512)
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr, n_fft=256, hop_length=256)
         mean_chroma = np.mean(chroma, axis=1)
         keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         major_profile = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
@@ -44,6 +44,40 @@ def _run_analysis(file_id, filepath):
     except Exception as e:
         traceback.print_exc()
         data_store[file_id].update({"status": "error", "error": str(e)})
+
+
+def _run_extract(file_id, filepath):
+    try:
+        print(f"[BG] Extract melody: {filepath}")
+        y, sr = librosa.load(filepath, sr=8000, duration=60.0)
+        gc.collect()
+        hop = 1024
+        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, fmin=75, fmax=800)
+        gc.collect()
+        onsets = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop)
+        onset_times = librosa.frames_to_time(onsets, sr=sr, hop_length=hop)
+        gc.collect()
+        melody = []
+        max_mag = np.max(magnitudes) if magnitudes.size > 0 else 1.0
+        threshold = max_mag * 0.1
+        for i in range(len(onset_times)):
+            t_start = onset_times[i]
+            t_end = onset_times[i+1] if i+1 < len(onset_times) else t_start + 0.5
+            center_frame = librosa.time_to_frames((t_start+t_end)/2, sr=sr, hop_length=hop)
+            if center_frame < pitches.shape[1]:
+                idx = magnitudes[:, center_frame].argmax()
+                if magnitudes[idx, center_frame] > threshold:
+                    pitch = pitches[idx, center_frame]
+                    if pitch > 50:
+                        melody.append({'t': float(t_start), 'dur': float(t_end-t_start), 'pitch': float(pitch)})
+        del y, pitches, magnitudes
+        gc.collect()
+        data_store[file_id]["melody_status"] = "done"
+        data_store[file_id]["melody"] = melody
+        print(f"[BG] Melody done: {file_id} notes={len(melody)}")
+    except Exception as e:
+        traceback.print_exc()
+        data_store[file_id]["melody_status"] = "error"
 
 
 @app.route('/')
@@ -100,33 +134,26 @@ def extract_melody():
         entry = data_store[fid]
         if entry.get("status") != "done":
             return jsonify({"error": "Analysis not complete yet."}), 400
-        y, sr = librosa.load(entry["path"], sr=8000, duration=60.0)
-        gc.collect()
-        hop = 1024
-        pitches, magnitudes = librosa.piptrack(y=y, sr=sr, hop_length=hop, fmin=75, fmax=800)
-        gc.collect()
-        onsets = librosa.onset.onset_detect(y=y, sr=sr, hop_length=hop)
-        onset_times = librosa.frames_to_time(onsets, sr=sr, hop_length=hop)
-        gc.collect()
-        melody = []
-        max_mag = np.max(magnitudes) if magnitudes.size > 0 else 1.0
-        threshold = max_mag * 0.1
-        for i in range(len(onset_times)):
-            t_start = onset_times[i]
-            t_end = onset_times[i+1] if i+1 < len(onset_times) else t_start + 0.5
-            center_frame = librosa.time_to_frames((t_start+t_end)/2, sr=sr, hop_length=hop)
-            if center_frame < pitches.shape[1]:
-                idx = magnitudes[:, center_frame].argmax()
-                if magnitudes[idx, center_frame] > threshold:
-                    pitch = pitches[idx, center_frame]
-                    if pitch > 50:
-                        melody.append({'t': float(t_start), 'dur': float(t_end-t_start), 'pitch': float(pitch)})
-        del y, pitches, magnitudes
-        gc.collect()
-        return jsonify({"melody": melody})
+        entry["melody_status"] = "pending"
+        t = threading.Thread(target=_run_extract, args=(fid, entry["path"]), daemon=True)
+        t.start()
+        return jsonify({"status": "pending"})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/melody_status/<file_id>', methods=['GET'])
+def melody_status(file_id):
+    if file_id not in data_store:
+        return jsonify({"status": "error"}), 404
+    entry = data_store[file_id]
+    ms = entry.get("melody_status", "none")
+    if ms == "done":
+        return jsonify({"status": "done", "melody": entry.get("melody", [])})
+    elif ms == "error":
+        return jsonify({"status": "error"})
+    return jsonify({"status": "pending"})
 
 
 def pitch_to_abc(pitch):
