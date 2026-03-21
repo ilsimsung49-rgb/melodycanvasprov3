@@ -1,223 +1,277 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Melody Canvas Pro</title>
+  <meta charset="UTF-8">
+  <title>MelodyCanvas Pro v3 - Lead Sheet Master</title>
   <script src="https://cdn.jsdelivr.net/npm/abcjs@6.2.2/dist/abcjs-basic-min.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', sans-serif; background: #0f0f1a; color: #e0e0ff; min-height: 100vh; }
-    header { background: linear-gradient(135deg, #1a1a3e, #2d1b69); padding: 20px 40px; }
-    header h1 { font-size: 1.8rem; color: #a78bfa; letter-spacing: 2px; }
-    header p { color: #9ca3af; font-size: 0.85rem; margin-top: 4px; }
-    .container { max-width: 900px; margin: 40px auto; padding: 0 20px; }
-    .card { background: #1a1a2e; border: 1px solid #2d2d5e; border-radius: 12px; padding: 28px; margin-bottom: 24px; }
-    .card h2 { font-size: 1rem; color: #a78bfa; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 1px; }
-    .upload-zone { border: 2px dashed #4c4c8a; border-radius: 10px; padding: 40px; text-align: center; cursor: pointer; transition: all 0.2s; }
-    .upload-zone:hover, .upload-zone.drag { border-color: #a78bfa; background: #1e1e3f; }
-    .upload-zone input { display: none; }
-    .upload-zone .icon { font-size: 2.5rem; margin-bottom: 12px; }
-    .upload-zone p { color: #9ca3af; font-size: 0.9rem; }
-    .btn { background: linear-gradient(135deg, #7c3aed, #4f46e5); color: white; border: none; padding: 10px 24px; border-radius: 8px; cursor: pointer; font-size: 0.9rem; transition: opacity 0.2s; }
-    .btn:hover { opacity: 0.85; }
-    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .btn-outline { background: transparent; border: 1px solid #4c4c8a; color: #a78bfa; }
-    .btn-outline:hover { background: #2d2d5e; opacity: 1; }
-    .result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    .result-item { background: #0f0f1a; border-radius: 8px; padding: 16px; text-align: center; }
-    .result-item .label { font-size: 0.75rem; color: #9ca3af; text-transform: uppercase; margin-bottom: 6px; }
-    .result-item .value { font-size: 1.8rem; font-weight: bold; color: #a78bfa; }
-    .status-bar { background: #0f0f1a; border-radius: 8px; padding: 12px 16px; font-size: 0.85rem; color: #9ca3af; display: flex; align-items: center; gap: 10px; }
-    .spinner { width: 16px; height: 16px; border: 2px solid #4c4c8a; border-top-color: #a78bfa; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
-    @keyframes spin { to { transform: rotate(360deg); } }
-    textarea { width: 100%; background: #0f0f1a; border: 1px solid #2d2d5e; border-radius: 8px; color: #e0e0ff; padding: 12px; font-size: 0.9rem; resize: vertical; min-height: 80px; }
-    textarea:focus { outline: none; border-color: #a78bfa; }
-    #score-output { background: white; border-radius: 8px; padding: 16px; min-height: 100px; }
-    .action-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-    .hidden { display: none !important; }
-    #section-results, #section-melody, #section-score { display: none; }
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Outfit:wght@300;600&display=swap');
+    :root {
+      --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
+      --accent: #58a6ff; --success: #238636; --danger: #f85149;
+    }
+    body {
+      margin: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text);
+      display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    }
+    header {
+      padding: 1.5rem 2rem; background: var(--panel); border-bottom: 2px solid var(--accent);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .main-container { display: flex; flex: 1; overflow: hidden; }
+    .sidebar {
+      width: 400px; background: var(--panel); border-right: 1px solid var(--border);
+      padding: 1.5rem; overflow-y: auto; display: flex; flex-direction: column; gap: 1.5rem;
+    }
+    .content { flex: 1; padding: 2rem; overflow-y: auto; background: #ffffff; color: #000; }
+    .panel { background: #f6f8fa; border: 1px solid #d0d7de; border-radius: 8px; padding: 1rem; border-color: var(--border); background: var(--panel); color: var(--text); }
+    .btn {
+      padding: 0.8rem 1.2rem; border-radius: 6px; border: none; font-weight: 600; cursor: pointer;
+      transition: all 0.2s; background: var(--accent); color: white;
+    }
+    .btn:hover { opacity: 0.9; transform: translateY(-1px); }
+    .btn-secondary { background: #30363d; border: 1px solid var(--border); }
+    .score-wrap { background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); min-height: 800px; color: #000; }
+    textarea { width: 100%; height: 200px; background: #010409; color: #58a6ff; border: 1px solid var(--border); border-radius: 6px; padding: 1rem; font-family: monospace; resize: none; overflow-y: auto; }
+    .section-item { display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: #010409; border-radius: 4px; margin-bottom: 0.5rem; }
+    .score-meta { text-align: center; margin-bottom: 2rem; color: #000; }
+    .score-meta h1 { margin: 0; font-family: 'Outfit', sans-serif; font-size: 2.5rem; }
+    .score-meta .sub { font-size: 1.2rem; color: #484f58; }
+    #score-target svg { width: 100% !important; height: auto !important; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>🎵 Melody Canvas Pro</h1>
-  <p>오디오 파일에서 BPM · Key · 멜로디 · 악보를 자동 추출</p>
+  <div style="display:flex; align-items:center; gap:1rem">
+    <div style="font-size:1.8rem">🎹</div>
+    <div>
+      <h2 style="margin:0; font-family:'Outfit'">MelodyCanvas Pro v3</h2>
+      <small style="color:var(--accent)">Lead Sheet Master Edition</small>
+    </div>
+  </div>
+  <audio id="audio-player" controls style="height:36px; border-radius:18px"></audio>
 </header>
 
-<div class="container">
-  <div class="card">
-    <h2>🎧 오디오 업로드</h2>
-    <div class="upload-zone" id="upload-zone" onclick="document.getElementById('file-input').click()">
-      <div class="icon">🎵</div>
-      <p id="upload-label">MP3, WAV, OGG 파일을 클릭하거나 드래그하세요</p>
-      <input type="file" id="file-input" accept="audio/*" />
+<div class="main-container">
+  <div class="sidebar">
+    <div class="panel">
+      <h3>1단계: 파일 업로드</h3>
+      <input type="file" id="audio-file" accept="audio/*" style="width:100%">
+      <div id="status-1" style="margin-top:0.5rem; font-size:0.85rem"></div>
     </div>
-    <div class="action-row">
-      <button class="btn" id="btn-analyze" disabled onclick="startAnalyze()">분석 시작</button>
-    </div>
-  </div>
 
-  <div class="status-bar hidden" id="status-bar">
-    <div class="spinner" id="spinner"></div>
-    <span id="status-text">분석 중...</span>
-  </div>
-
-  <div class="card" id="section-results">
-    <h2>📊 분석 결과</h2>
-    <div class="result-grid">
-      <div class="result-item">
-        <div class="label">BPM</div>
-        <div class="value" id="result-bpm">—</div>
-      </div>
-      <div class="result-item">
-        <div class="label">Key</div>
-        <div class="value" id="result-key">—</div>
+    <div class="panel">
+      <h3>2단계: 곡 설정 (Lead Sheet)</h3>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem">
+        <input type="text" id="score-title" placeholder="곡 제목" style="padding:0.5rem">
+        <input type="text" id="score-key" placeholder="Key (예: A Major)" style="padding:0.5rem">
+        <input type="text" id="score-tempo" placeholder="Tempo (BPM)" style="padding:0.5rem">
+        <input type="text" id="score-style" placeholder="Style (Swing, Ballad)" style="padding:0.5rem">
       </div>
     </div>
-    <div class="action-row">
-      <button class="btn" id="btn-melody" onclick="extractMelody()">멜로디 추출</button>
+
+    <div class="panel">
+      <h3>3단계: 섹션 구성</h3>
+      <div id="section-list"></div>
+      <button class="btn btn-secondary" onclick="addSection()" style="width:100%; margin-top:0.5rem">+ 섹션 추가</button>
+      <button id="btn-extract" class="btn" style="width:100%; margin-top:1rem" onclick="runAnalysis()">🧬 전구간 정밀 분석 시작</button>
+    </div>
+
+    <div class="panel">
+      <h3>4단계: 가사 입력</h3>
+      <p style="font-size:0.8rem; opacity:0.7">단락(엔터 2번)으로 나누면 자동으로 섹션에 배분됩니다.</p>
+      <textarea id="full-lyrics" placeholder="[Verse 1]&#10;흐르는 세월속에..."></textarea>
+      <button class="btn" style="width:100%; margin-top:1rem; font-size:1.1rem" onclick="generateFinalScore()">🎬 최종 악보 생성</button>
     </div>
   </div>
 
-  <div class="card" id="section-melody">
-    <h2>🎼 악보 생성</h2>
-    <p style="color:#9ca3af; font-size:0.85rem; margin-bottom:12px;">가사를 입력하면 악보에 함께 표시됩니다 (선택)</p>
-    <textarea id="lyrics-input" placeholder="가사 입력 (선택사항)..."></textarea>
-    <div class="action-row">
-      <button class="btn" id="btn-score" onclick="buildScore()">악보 생성</button>
+  <div class="content">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; color:#000">
+      <h2 style="margin:0">악보 미리보기</h2>
+      <div style="display:flex; gap:0.5rem">
+        <button class="btn" onclick="exportImage()" style="background:var(--success)">🖼️ 악보 사진(PNG)으로 저장</button>
+        <button class="btn btn-secondary" onclick="exportXML()">📄 데이터 파일 저장</button>
+        <button class="btn btn-secondary" onclick="abcView()">📄 ABC 코드</button>
+      </div>
     </div>
-  </div>
 
-  <div class="card" id="section-score">
-    <h2>🎹 악보</h2>
-    <div id="score-output"></div>
-    <div class="action-row">
-      <button class="btn btn-outline" onclick="copyAbc()">ABC 복사</button>
+    <div class="score-wrap">
+      <div id="score-target"></div>
     </div>
+    
+    <div id="abc-view" style="display:none; margin-top:1rem; background:#010409; color:#58a6ff; padding:1rem; border-radius:8px; font-family:monospace; white-space:pre"></div>
   </div>
 </div>
 
 <script>
-  let fileObj = null, fileId = null, analysisResult = null, melodyData = null, abcData = null, pollTimer = null;
+  let state = {
+    file_id: '',
+    beat: null, key: null, chords: [], melody: [],
+    sections: [
+      {name:'Intro', bars:4, type:'inst'},
+      {name:'Verse 1', bars:8, type:'vocal'},
+      {name:'Chorus', bars:8, type:'vocal'}
+    ],
+    lastXML: ''
+  };
 
-  const fileInput = document.getElementById('file-input');
-  const uploadZone = document.getElementById('upload-zone');
-
-  fileInput.addEventListener('change', () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
-  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('drag'); });
-  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('drag'));
-  uploadZone.addEventListener('drop', e => {
-    e.preventDefault(); uploadZone.classList.remove('drag');
-    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
-  });
-
-  function setFile(f) {
-    fileObj = f;
-    document.getElementById('upload-label').textContent = `✅ ${f.name} (${(f.size/1024/1024).toFixed(2)} MB)`;
-    document.getElementById('btn-analyze').disabled = false;
+  function addSection() {
+    state.sections.push({name:'New Section', bars:8, type:'vocal'});
+    renderSections();
   }
 
-  async function startAnalyze() {
-    if (!fileObj) return;
-    resetResults();
-    showStatus('서버에 업로드 중...');
-    const fd = new FormData();
-    fd.append('file', fileObj);
+  function renderSections() {
+    const container = document.getElementById('section-list');
+    container.innerHTML = state.sections.map((s, i) => `
+      <div class="section-item">
+        <input type="text" value="${s.name}" onchange="state.sections[${i}].name=this.value" style="width:100px; background:none; border:none; color:white">
+        <input type="number" value="${s.bars}" onchange="state.sections[${i}].bars=parseInt(this.value)" style="width:40px; background:none; border:none; color:white">
+        <select onchange="state.sections[${i}].type=this.value" style="background:none; border:none; color:#58a6ff">
+          <option value="vocal" ${s.type==='vocal'?'selected':''}>Vocal</option>
+          <option value="inst" ${s.type==='inst'?'selected':''}>Inst</option>
+        </select>
+      </div>
+    `).join('');
+  }
+  renderSections();
+
+  // ── 파일 업로드 + 폴링 ──
+  document.getElementById('audio-file').onchange = async (e) => {
+    const file = e.target.files[0];
+    if(!file) return;
+    document.getElementById('audio-player').src = URL.createObjectURL(file);
+    const formData = new FormData(); formData.append('file', file);
+    document.getElementById('status-1').innerText = '업로드 중...';
     try {
-      const res = await fetch('/api/analyze', { method: 'POST', body: fd });
-      const data = await res.json();
-      if (data.error) { showStatus('❌ ' + data.error, true); return; }
-      fileId = data.file_id;
-      showStatus('분석 중... (백그라운드 처리)');
-      pollStatus();
-    } catch(e) { showStatus('❌ 업로드 실패: ' + e.message, true); }
+      const resp = await fetch('/api/analyze', {method:'POST', body:formData});
+      const data = await resp.json();
+      state.file_id = data.file_id;
+      document.getElementById('score-title').value = file.name.split('.')[0];
+      document.getElementById('status-1').innerText = '⏳ 분석 중... (잠시 기다려 주세요)';
+      const poll = setInterval(async () => {
+        try {
+          const r = await fetch('/api/status/' + state.file_id);
+          const d = await r.json();
+          if(d.status === 'done') {
+            clearInterval(poll);
+            state.beat = d.beat;
+            state.key = d.key;
+            state.chords = d.chords;
+            document.getElementById('score-key').value = d.key.key_str;
+            document.getElementById('score-tempo').value = d.beat.bpm;
+            document.getElementById('status-1').innerText = '✅ 분석 완료! (BPM: ' + d.beat.bpm + ')';
+          } else if(d.status === 'error') {
+            clearInterval(poll);
+            document.getElementById('status-1').innerText = '❌ 오류: ' + d.error;
+          }
+        } catch(err) { clearInterval(poll); }
+      }, 2000);
+    } catch(err) { alert('분석 실패: ' + err); }
+  };
+
+  async function runAnalysis() {
+    if(!state.file_id) return alert('파일을 먼저 업로드하세요');
+    document.getElementById('btn-extract').innerText = '🧬 정밀 멜로디 추출중... (5분 소요)';
+    const resp = await fetch('/api/extract_melody', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({file_id: state.file_id, t_start:0, t_end: 600})
+    });
+    const data = await resp.json();
+    state.melody = data.melody;
+    document.getElementById('btn-extract').innerText = '✅ 추출 완료';
   }
 
-  function pollStatus() {
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/status/${fileId}`);
-        const data = await res.json();
-        if (data.status === 'done') {
-          clearInterval(pollTimer);
-          analysisResult = data;
-          hideStatus();
-          showResults(data);
-        } else if (data.status === 'error') {
-          clearInterval(pollTimer);
-          showStatus('❌ 분석 오류: ' + data.error, true);
-        }
-      } catch(e) { clearInterval(pollTimer); showStatus('❌ 상태 확인 실패', true); }
-    }, 2000);
-  }
+  async function generateFinalScore() {
+    const rawLyrics = document.getElementById('full-lyrics').value;
+    const parts = rawLyrics.split(/\n\n+/).filter(p => p.trim());
+    
+    state.sections = [];
+    for(let i=0; i<parts.length; i++) {
+        const name = parts[i].match(/^\[(.*?)\]/);
+        const sectionName = name ? name[1] : 'Verse ' + (i+1);
+        state.sections.push({name: sectionName, bars: 8, type: 'vocal', lyrics: parts[i]});
+    }
+    renderSections();
 
-  function showResults(data) {
-    document.getElementById('result-bpm').textContent = data.beat?.bpm ?? '—';
-    document.getElementById('result-key').textContent = data.key?.key_str ?? '—';
-    document.getElementById('section-results').style.display = 'block';
-  }
+    const manualBpm = parseInt(document.getElementById('score-tempo').value) || 120;
+    const manualKey = document.getElementById('score-key').value || 'C';
 
-  async function extractMelody() {
-    document.getElementById('btn-melody').disabled = true;
-    showStatus('멜로디 추출 중... (30~60초 소요)');
+    const payload = {
+      title: document.getElementById('score-title').value || 'Lead Sheet',
+      style: document.getElementById('score-style').value || 'Medium Swing',
+      beat: { bpm: manualBpm }, 
+      key: { key_str: manualKey },
+      chords: state.chords,
+      melody: state.melody, 
+      sections: state.sections
+    };
+    
+    document.getElementById('status-1').innerText = '최종 악보 생성 중...';
     try {
-      const res = await fetch('/api/extract_melody', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ file_id: fileId })
-      });
-      const data = await res.json();
-      if (data.error) { showStatus('❌ ' + data.error, true); document.getElementById('btn-melody').disabled = false; return; }
-      melodyData = data.melody;
-      hideStatus();
-      document.getElementById('section-melody').style.display = 'block';
-      document.getElementById('btn-melody').disabled = false;
-    } catch(e) { showStatus('❌ 멜로디 추출 실패: ' + e.message, true); document.getElementById('btn-melody').disabled = false; }
+      const resp = await fetch('/api/build_score', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload)});
+      const result = await resp.json();
+      state.abc = result.abc;
+      state.lastXML = result.xml || ""; 
+      
+      ABCJS.renderAbc("score-target", result.abc, {responsive:'resize', foregroundColor:'#000'});
+      document.getElementById('abc-view').innerText = result.abc;
+      document.getElementById('status-1').innerText = '생성 완료! 악보를 이미지로 받으세요.';
+    } catch(err) {
+      alert('생성 실패: ' + err);
+    }
   }
 
-  async function buildScore() {
-    if (!melodyData) return;
-    document.getElementById('btn-score').disabled = true;
-    showStatus('악보 생성 중...');
-    try {
-      const res = await fetch('/api/build_score', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ melody: melodyData, bpm: analysisResult?.beat?.bpm ?? 120, key: analysisResult?.key ?? { key: 'C' }, lyrics: document.getElementById('lyrics-input').value })
-      });
-      const data = await res.json();
-      if (data.error) { showStatus('❌ ' + data.error, true); document.getElementById('btn-score').disabled = false; return; }
-      abcData = data.abc;
-      hideStatus();
-      document.getElementById('section-score').style.display = 'block';
-      ABCJS.renderAbc('score-output', abcData, { responsive: 'resize' });
-      document.getElementById('btn-score').disabled = false;
-    } catch(e) { showStatus('❌ 악보 생성 실패: ' + e.message, true); document.getElementById('btn-score').disabled = false; }
+  async function exportImage() {
+    if(!state.abc) return alert('먼저 악보를 생성해 주세요.');
+    const svg = document.querySelector("#score-target svg");
+    if(!svg) return alert('악보 이미지를 찾을 수 없습니다.');
+    
+    document.getElementById('status-1').innerText = '🖼️ 사진 파일(PNG) 생성 중...';
+    
+    const svgData = new XMLSerializer().serializeToString(svg);
+    const svgRect = svg.getBoundingClientRect();
+    const width = svgRect.width * 2;
+    const height = svgRect.height * 2;
+    
+    const img = new Image();
+    const svgBlob = new Blob([svgData], {type: "image/svg+xml;charset=utf-8"});
+    const url = URL.createObjectURL(svgBlob);
+    
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      ctx.fillStyle = "white";
+      ctx.fillRect(0, 0, width, height);
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      const pngUrl = canvas.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = `melody_score.png`;
+      a.click();
+      
+      URL.revokeObjectURL(url);
+      document.getElementById('status-1').innerText = '✅ PNG 저장 완료!';
+    };
+    img.src = url;
   }
 
-  function copyAbc() {
-    if (!abcData) return;
-    navigator.clipboard.writeText(abcData).then(() => alert('ABC 노테이션이 복사됐습니다!'));
+  function exportXML() {
+    if(!state.abc) return alert('먼저 악보를 생성해 주세요.');
+    const content = state.lastXML || state.abc;
+    const extension = state.lastXML ? 'musicxml' : 'abc';
+    const blob = new Blob([content], {type: 'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = `score.${extension}`; a.click();
   }
 
-  function showStatus(msg, isError = false) {
-    const bar = document.getElementById('status-bar');
-    bar.classList.remove('hidden');
-    document.getElementById('status-text').textContent = msg;
-    document.getElementById('spinner').style.display = isError ? 'none' : 'block';
-    bar.style.color = isError ? '#f87171' : '#9ca3af';
-  }
-
-  function hideStatus() { document.getElementById('status-bar').classList.add('hidden'); }
-
-  function resetResults() {
-    fileId = null; analysisResult = null; melodyData = null; abcData = null;
-    if (pollTimer) clearInterval(pollTimer);
-    document.getElementById('section-results').style.display = 'none';
-    document.getElementById('section-melody').style.display = 'none';
-    document.getElementById('section-score').style.display = 'none';
-    document.getElementById('score-output').innerHTML = '';
+  function abcView() { 
+    if(!state.abc) return alert('악보를 먼저 생성해 주세요.');
+    const v = document.getElementById('abc-view'); 
+    v.style.display = v.style.display==='none'?'block':'none'; 
   }
 </script>
 </body>
